@@ -1,4 +1,7 @@
 //import javax.annotation.concurrent.ThreadSafe;
+
+import lombok.Getter;
+
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
@@ -22,7 +25,10 @@ import java.util.concurrent.ThreadLocalRandom;
  * @see <a href="https://en.wikipedia.org/wiki/Rate_limiting">Rate limiting on Wikipedia</a>
  */
 //@ThreadSafe
+@Getter
 public class RateLimitedExecutor {
+    final int requestsPerMinute;
+    final int maxQueueSize;
     /**
      * Constructs a new RateLimitedExecutor and start accepting Requests immediately.
      *
@@ -30,6 +36,8 @@ public class RateLimitedExecutor {
      * @param maxQueueSize      The maximum size of the task queue.
      */
     public RateLimitedExecutor(int requestsPerMinute, int maxQueueSize) {
+        this.requestsPerMinute = requestsPerMinute;
+        this.maxQueueSize = maxQueueSize;
         // TODO
     }
 
@@ -118,6 +126,7 @@ public class RateLimitedExecutor {
     public static void main(String[] args) {
         final RateLimitedExecutor executor = new RateLimitedExecutor(100, 8);
 
+        //noinspection InfiniteLoopStatement
         while (true) {
             Request request = Request.create();
             executor.queue(request).whenComplete((msg, err) -> {

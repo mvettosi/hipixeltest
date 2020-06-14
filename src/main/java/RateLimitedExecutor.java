@@ -1,5 +1,6 @@
 //import javax.annotation.concurrent.ThreadSafe;
 
+import exception.RequestDeniedException;
 import lombok.Getter;
 
 import java.util.UUID;
@@ -60,7 +61,7 @@ public class RateLimitedExecutor {
      * @param request Request to queue
      * @return CompletableFuture which is completed once the requests executed.
      */
-    public CompletableFuture<String> queue(Request request) {
+    public CompletableFuture<String> queue(Request request) throws RequestDeniedException {
         final CompletableFuture<String> future = new CompletableFuture<>();
         // TODO
         try {
@@ -129,13 +130,17 @@ public class RateLimitedExecutor {
         //noinspection InfiniteLoopStatement
         while (true) {
             Request request = Request.create();
-            executor.queue(request).whenComplete((msg, err) -> {
-                if (err != null) {
-                    System.out.printf("[%s] Error: %s\n", request.getId(), err.getMessage());
-                } else {
-                    System.out.printf("[%s] %s\n", request.getId(), msg);
-                }
-            });
+            try {
+                executor.queue(request).whenComplete((msg, err) -> {
+                    if (err != null) {
+                        System.out.printf("[%s] Error: %s\n", request.getId(), err.getMessage());
+                    } else {
+                        System.out.printf("[%s] %s\n", request.getId(), msg);
+                    }
+                });
+            } catch (RequestDeniedException e) {
+                e.printStackTrace();
+            }
         }
     }
 }

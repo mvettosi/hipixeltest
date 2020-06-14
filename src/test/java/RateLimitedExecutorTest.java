@@ -1,10 +1,9 @@
-import exception.RequestDeniedException;
+import exception.RateLimitedRequestException;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RateLimitedExecutorTest {
     /**
@@ -32,7 +31,6 @@ class RateLimitedExecutorTest {
     void queue_RequestsBelowRateLimit() throws Exception {
         // Arrange
         RateLimitedExecutor executor = new RateLimitedExecutor(10, 10);
-        int executed = 0;
 
         // Act
         executor.queue(RateLimitedExecutor.Request.create());
@@ -41,5 +39,21 @@ class RateLimitedExecutorTest {
 
         // Assert
         // No RequestDeniedException
+    }
+
+    /**
+     * Ensure that the rate limiter rejects requests that are above the configured rate limit.
+     */
+    @Test()
+    void queue_RequestsAboveRateLimit() throws Exception {
+        // Arrange
+        RateLimitedExecutor executor = new RateLimitedExecutor(2, 10);
+
+        // Act & Assert
+        assertThrows(RateLimitedRequestException.class, () -> {
+            executor.queue(RateLimitedExecutor.Request.create());
+            executor.queue(RateLimitedExecutor.Request.create());
+            executor.queue(RateLimitedExecutor.Request.create());
+        });
     }
 }

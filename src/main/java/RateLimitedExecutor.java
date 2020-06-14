@@ -1,35 +1,39 @@
 //import javax.annotation.concurrent.ThreadSafe;
 
-import exception.RequestDeniedException;
+import exception.RateLimitedRequestException;
 import lombok.Getter;
 
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Rate limits are an important tool to prevent API users from causing denial-of-service for other users.
- * This class is supposed to guarantee that we do not perform too many requests for our specified rate.
- * Please make use of the Java standard library and implement a thread-safe rate limiter.
+ * Rate limits are an important tool to prevent API users from causing denial-of-service for other users. This class is
+ * supposed to guarantee that we do not perform too many requests for our specified rate. Please make use of the Java
+ * standard library and implement a thread-safe rate limiter.
  * <p>
- * Implement a thread-safe rate limiting executor service. Configuration parameters are accepted in the
- * constructor and should be immutable over the lifetime of the instance. The rate limitation should be
- * implemented via a rolling window to ensure minimal delay between task execution. Accepted requests
- * should be queued until the maximum queue size is reached. Queueing a request while the maximum queue
- * size is reached will block the calling thread until the request can be accepted. Once a request was
- * executed the completable future should either complete or exceptionally fail. All requests should be
- * handled in a dedicated thread.
+ * Implement a thread-safe rate limiting executor service. Configuration parameters are accepted in the constructor and
+ * should be immutable over the lifetime of the instance. The rate limitation should be implemented via a rolling window
+ * to ensure minimal delay between task execution. Accepted requests should be queued until the maximum queue size is
+ * reached. Queueing a request while the maximum queue size is reached will block the calling thread until the request
+ * can be accepted. Once a request was executed the completable future should either complete or exceptionally fail. All
+ * requests should be handled in a dedicated thread.
  * <p>
- * Bonus Objective: Execute requests in parallel without violate the original contract by changing the
- * dedicated thread to a threadpool.
+ * Bonus Objective: Execute requests in parallel without violate the original contract by changing the dedicated thread
+ * to a threadpool.
  *
  * @see <a href="https://en.wikipedia.org/wiki/Rate_limiting">Rate limiting on Wikipedia</a>
  */
 //@ThreadSafe
 @Getter
 public class RateLimitedExecutor {
-    final int requestsPerMinute;
-    final int maxQueueSize;
+    private final int requestsPerMinute;
+    private final int maxQueueSize;
+    private final Map<Long, Integer> acceptedRequests;
+
     /**
      * Constructs a new RateLimitedExecutor and start accepting Requests immediately.
      *
@@ -39,6 +43,7 @@ public class RateLimitedExecutor {
     public RateLimitedExecutor(int requestsPerMinute, int maxQueueSize) {
         this.requestsPerMinute = requestsPerMinute;
         this.maxQueueSize = maxQueueSize;
+        this.acceptedRequests = new ConcurrentHashMap<>();
         // TODO
     }
 
@@ -53,23 +58,39 @@ public class RateLimitedExecutor {
     /**
      * This method should queue a request to be processed as soon as possible (FIFO).
      * <p>
-     * Processing a request should not be done in the calling thread. If the call would be exceeding the maximum size
-     * of the queue we want the call to block the current thread.
+     * Processing a request should not be done in the calling thread. If the call would be exceeding the maximum size of
+     * the queue we want the call to block the current thread.
      * <p>
      * Processing requests may not exceed the rolling window defined in the constructor.
      *
      * @param request Request to queue
      * @return CompletableFuture which is completed once the requests executed.
      */
-    public CompletableFuture<String> queue(Request request) throws RequestDeniedException {
+    public CompletableFuture<String> queue(Request request) throws RateLimitedRequestException {
         final CompletableFuture<String> future = new CompletableFuture<>();
-        // TODO
-        try {
-            future.complete(request.execute());
-        } catch (Exception e) {
-            future.completeExceptionally(e);
+
+        // Retrieve the current timestamp in seconds
+        long timeStampSeconds = Instant.now().getEpochSecond();
+
+        // Remove all logs older than one minute ago
+        getAcceptedRequests().entrySet().removeIf(entry -> entry.getKey() < timeStampSeconds - 60);
+
+        // Get the sum of all the requests accepted in the last minute
+        Integer acceptedRequestNumber = getAcceptedRequests().values().stream().reduce(0, Integer::sum);
+
+        if (acceptedRequestNumber < getRequestsPerMinute()) {
+            // This request can be accepted, increment the accepted counter for this timestamp
+            getAcceptedRequests().put(timeStampSeconds, getAcceptedRequests().getOrDefault(timeStampSeconds, 0) + 1);
+
+            // Execute request
+            try {
+                future.complete(request.execute());
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        } else {
+            throw new RateLimitedRequestException();
         }
-        // TODO
         return future;
     }
 
@@ -138,7 +159,7 @@ public class RateLimitedExecutor {
                         System.out.printf("[%s] %s\n", request.getId(), msg);
                     }
                 });
-            } catch (RequestDeniedException e) {
+            } catch (RateLimitedRequestException e) {
                 e.printStackTrace();
             }
         }

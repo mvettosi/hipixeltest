@@ -67,7 +67,7 @@ class RateLimitedExecutorTest {
     void queue_PausesCallingThreadWhenQueueIsFull() throws Exception {
         // Arrange
         RateLimitedExecutor executor = new RateLimitedExecutor(10, 2);
-        executor.getRequestExecutor().stop(); // Pause the de-queueing process
+        executor.getRequestExecutor().stop(); // Pause the de-queueing process to avoid race conditions
         CountDownLatch latch = new CountDownLatch(1);
         // Make a test runner that will be blocked trying to enqueue the third request
         Thread testRunner = new Thread(() -> {

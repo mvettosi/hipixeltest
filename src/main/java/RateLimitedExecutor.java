@@ -1,6 +1,6 @@
 //import javax.annotation.concurrent.ThreadSafe;
 
-import exception.RateLimitedRequestException;
+import exception.RateLimitException;
 import lombok.Getter;
 
 import java.time.Instant;
@@ -33,6 +33,7 @@ public class RateLimitedExecutor {
     private final int requestsPerMinute;
     private final int maxQueueSize;
     private final Map<Long, Integer> acceptedRequests;
+    private final RequestExecutor requestExecutor;
 
     /**
      * Constructs a new RateLimitedExecutor and start accepting Requests immediately.
@@ -44,15 +45,14 @@ public class RateLimitedExecutor {
         this.requestsPerMinute = requestsPerMinute;
         this.maxQueueSize = maxQueueSize;
         this.acceptedRequests = new ConcurrentHashMap<>();
-        // TODO
+        this.requestExecutor = new RequestExecutor(maxQueueSize);
     }
 
     /**
      * @return Amount of currently queued requests
      */
     public int getQueuedRequests() {
-        // TODO
-        return 0;
+        return getRequestExecutor().getQueuedRequests();
     }
 
     /**
@@ -66,7 +66,7 @@ public class RateLimitedExecutor {
      * @param request Request to queue
      * @return CompletableFuture which is completed once the requests executed.
      */
-    public CompletableFuture<String> queue(Request request) throws RateLimitedRequestException {
+    public CompletableFuture<String> queue(Request request) throws RateLimitException, InterruptedException {
         final CompletableFuture<String> future = new CompletableFuture<>();
 
         // Retrieve the current timestamp in seconds
@@ -82,14 +82,20 @@ public class RateLimitedExecutor {
             // This request can be accepted, increment the accepted counter for this timestamp
             getAcceptedRequests().put(timeStampSeconds, getAcceptedRequests().getOrDefault(timeStampSeconds, 0) + 1);
 
-            // Execute request
-            try {
-                future.complete(request.execute());
-            } catch (Exception e) {
-                future.completeExceptionally(e);
-            }
+            getRequestExecutor().enqueue(() -> {
+                // Execute request
+                System.out.println("About to execute");
+                try {
+                    future.complete(request.execute());
+                    System.out.println("Completed");
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                    System.out.println("Future exception");
+                }
+            });
         } else {
-            throw new RateLimitedRequestException();
+            // Rate limit reached! Cannot satisfy this request
+            throw new RateLimitException();
         }
         return future;
     }
@@ -159,7 +165,7 @@ public class RateLimitedExecutor {
                         System.out.printf("[%s] %s\n", request.getId(), msg);
                     }
                 });
-            } catch (RateLimitedRequestException e) {
+            } catch (RateLimitException | InterruptedException e) {
                 e.printStackTrace();
             }
         }

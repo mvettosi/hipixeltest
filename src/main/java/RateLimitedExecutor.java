@@ -84,13 +84,10 @@ public class RateLimitedExecutor {
 
             getRequestExecutor().enqueue(() -> {
                 // Execute request
-                System.out.println("About to execute");
                 try {
                     future.complete(request.execute());
-                    System.out.println("Completed");
                 } catch (Exception e) {
                     future.completeExceptionally(e);
-                    System.out.println("Future exception");
                 }
             });
         } else {

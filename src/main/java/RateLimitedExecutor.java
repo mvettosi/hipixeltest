@@ -1,6 +1,7 @@
 //import javax.annotation.concurrent.ThreadSafe;
 
 import exception.RateLimitException;
+import lombok.AccessLevel;
 import lombok.Getter;
 
 import java.time.Instant;
@@ -32,8 +33,17 @@ import java.util.concurrent.ThreadLocalRandom;
 public class RateLimitedExecutor {
     private final int requestsPerMinute;
     private final int maxQueueSize;
-    private final Map<Long, Integer> acceptedRequests;
     private final RequestExecutor requestExecutor;
+
+    /*
+     * Implementation notes: This is an alternative implementation of the classic "Sliding Window" rate limitation, and
+     * leverages the fact that this executor only supports the number of requests per minute (it's not expected to have
+     * configurable window size). Because of this, we can keep track of the requests received in each timestamp in
+     * seconds and use them to determine if the rate limit has been reached or not. The cleaning operation performed on
+     * each update also ensures the size of this map never goes much further than 60.
+     */
+    @Getter(AccessLevel.PRIVATE)
+    private final Map<Long, Integer> acceptedRequests;
 
     /**
      * Constructs a new RateLimitedExecutor and start accepting Requests immediately.

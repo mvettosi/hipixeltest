@@ -78,20 +78,32 @@ public class RateLimitedExecutor {
      */
     public CompletableFuture<String> queue(Request request) throws RateLimitException, InterruptedException {
         final CompletableFuture<String> future = new CompletableFuture<>();
+        final boolean accepted;
 
         // Retrieve the current timestamp in seconds
         long timeStampSeconds = Instant.now().getEpochSecond();
 
-        // Remove all logs older than one minute ago
-        getAcceptedRequests().entrySet().removeIf(entry -> entry.getKey() < timeStampSeconds - 60);
+        // Make sure that the decision on whether this request should be accepted or not is atomic and synchronized
+        // in order to avoid multiple threads to see a last spot open in the current window and decide at the same time
+        // that they are getting it
+        synchronized (acceptedRequests) {
+            // Remove all logs older than one minute ago
+            getAcceptedRequests().entrySet().removeIf(entry -> entry.getKey() < timeStampSeconds - 60);
 
-        // Get the sum of all the requests accepted in the last minute
-        Integer acceptedRequestNumber = getAcceptedRequests().values().stream().reduce(0, Integer::sum);
+            // Get the sum of all the requests accepted in the last minute
+            Integer acceptedRequestNumber = getAcceptedRequests().values().stream().reduce(0, Integer::sum);
 
-        if (acceptedRequestNumber < getRequestsPerMinute()) {
-            // This request can be accepted, increment the accepted counter for this timestamp
-            getAcceptedRequests().put(timeStampSeconds, getAcceptedRequests().getOrDefault(timeStampSeconds, 0) + 1);
+            if (acceptedRequestNumber < getRequestsPerMinute()) {
+                // This request can be accepted, increment the accepted counter for this timestamp
+                getAcceptedRequests().put(timeStampSeconds, getAcceptedRequests().getOrDefault(timeStampSeconds, 0) + 1);
+                accepted = true;
+            } else {
+                accepted = false;
+            }
+        }
 
+        if (accepted) {
+            // Request accepted, attempt to enqueue and wait for the queue to free up space if needed.
             getRequestExecutor().enqueue(() -> {
                 // Execute request
                 try {

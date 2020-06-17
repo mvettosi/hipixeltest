@@ -1,12 +1,17 @@
 import exception.RateLimitException;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class RateLimitedExecutorTest {
     /**
@@ -95,5 +100,46 @@ class RateLimitedExecutorTest {
 
         // Assert
         assertThat(testRunner.getState(), is(Thread.State.WAITING));
+    }
+
+    /**
+     * Check that the queue method is thread safe
+     */
+    @Test
+    void queue_ThreadSafety() throws Exception {
+        // Arrange
+        final int requestsToBeAccepted = 2;
+        final int requestsToBeRejected = 8;
+        final int totalRequests = requestsToBeAccepted + requestsToBeRejected;
+        RateLimitedExecutor executor = new RateLimitedExecutor(requestsToBeAccepted, 100);
+        executor.getRequestExecutor().stop(); // Pause the de-queueing process to avoid race conditions
+        AtomicInteger acceptedRequests = new AtomicInteger(0);
+        AtomicInteger rateLimitedRequests = new AtomicInteger(0);
+        CountDownLatch countDownLatch = new CountDownLatch(totalRequests + 1);
+        List<Thread> lastStopContenders = new ArrayList<>();
+        IntStream.rangeClosed(1, totalRequests).forEach(i -> lastStopContenders.add(new Thread(() -> {
+            try {
+                countDownLatch.countDown();
+                countDownLatch.await();
+                executor.queue(RateLimitedExecutor.Request.create());
+                acceptedRequests.getAndIncrement();
+            } catch (RateLimitException e) {
+                rateLimitedRequests.getAndIncrement();
+            } catch (InterruptedException e) {
+                fail(e);
+            }
+        })));
+
+        // Act
+        lastStopContenders.forEach(Thread::start);
+        // Make all lastStopContenders, blocked before the queue() call, to start at approximately the same time
+        countDownLatch.countDown();
+        for (Thread lastStopContender : lastStopContenders) {
+            lastStopContender.join();
+        }
+
+        // Assert
+        assertThat(acceptedRequests.get(), is(requestsToBeAccepted));
+        assertThat(rateLimitedRequests.get(), is(requestsToBeRejected));
     }
 }

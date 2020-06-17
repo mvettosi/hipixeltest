@@ -35,12 +35,12 @@ public class RateLimitedExecutor {
     private final int maxQueueSize;
     private final RequestExecutor requestExecutor;
 
-    /*
-     * Implementation notes: This is an alternative implementation of the classic "Sliding Window" rate limitation, and
-     * leverages the fact that this executor only supports the number of requests per minute (it's not expected to have
-     * configurable window size). Because of this, we can keep track of the requests received in each timestamp in
-     * seconds and use them to determine if the rate limit has been reached or not. The cleaning operation performed on
-     * each update also ensures the size of this map never goes much further than 60.
+    /**
+     * Implementation notes: This is an alternative implementation of the classic "Sliding Window" rate limitation
+     * algorithm, and leverages the fact that this executor only supports the number of requests per minute (it's not
+     * expected to have configurable window size). Because of this, we can keep track of the requests received in each
+     * timestamp in seconds and use them to determine if the rate limit has been reached or not. The cleaning operation
+     * performed on each update also ensures the size of this map never goes much further than 60.
      */
     @Getter(AccessLevel.PRIVATE)
     private final Map<Long, Integer> acceptedRequests;

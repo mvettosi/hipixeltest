@@ -1,3 +1,4 @@
+import lombok.AccessLevel;
 import lombok.Getter;
 
 import java.util.concurrent.*;
@@ -7,7 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Class that enqueues requests and executes them in a dedicated Thread as fast as possible, blocking the caller if
  * trying to enqueue while the queue is full.
  */
-@Getter
+@Getter(AccessLevel.PRIVATE)
 public class RequestExecutor {
     private final BlockingQueue<Runnable> requestQueue;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);

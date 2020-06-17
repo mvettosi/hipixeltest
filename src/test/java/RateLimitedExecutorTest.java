@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.stream.IntStream;
 
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -14,6 +15,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 class RateLimitedExecutorTest {
+    private static final BiConsumer<String, Throwable> waitForever = (msg, err) -> {
+        try {
+            Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            fail();
+        }
+    };
+
     /**
      * Configuration parameters are accepted in the constructor and should be immutable over the lifetime of the
      * instance.
@@ -72,13 +81,19 @@ class RateLimitedExecutorTest {
     void queue_PausesCallingThreadWhenQueueIsFull() throws Exception {
         // Arrange
         RateLimitedExecutor executor = new RateLimitedExecutor(10, 2);
-        executor.getRequestExecutor().stop(); // Pause the de-queueing process to avoid race conditions
+        // Ensure only one thread is in the pool in order to pause it and make the queue stuck
+        executor.getRequestExecutor().setCorePoolSize(0);
+        executor.getRequestExecutor().setMaximumPoolSize(1);
         CountDownLatch latch = new CountDownLatch(1);
         // Make a test runner that will be blocked trying to enqueue the third request
         Thread testRunner = new Thread(() -> {
             try {
+                // This will be removed from the queue and will pause the thread
+                executor.queue(RateLimitedExecutor.Request.create()).whenComplete(waitForever);
+                // These two will fill up the queue
                 executor.queue(RateLimitedExecutor.Request.create());
                 executor.queue(RateLimitedExecutor.Request.create());
+                // This should block the current thread
                 RateLimitedExecutor.Request thirdRequest = RateLimitedExecutor.Request.create();
                 latch.countDown();
                 executor.queue(thirdRequest);
@@ -112,7 +127,6 @@ class RateLimitedExecutorTest {
         final int requestsToBeRejected = 8;
         final int totalRequests = requestsToBeAccepted + requestsToBeRejected;
         RateLimitedExecutor executor = new RateLimitedExecutor(requestsToBeAccepted, 100);
-        executor.getRequestExecutor().stop(); // Pause the de-queueing process to avoid race conditions
         AtomicInteger acceptedRequests = new AtomicInteger(0);
         AtomicInteger rateLimitedRequests = new AtomicInteger(0);
         CountDownLatch countDownLatch = new CountDownLatch(totalRequests + 1);

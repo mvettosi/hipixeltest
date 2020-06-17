@@ -1,15 +1,14 @@
 //import javax.annotation.concurrent.ThreadSafe;
 
 import exception.RateLimitException;
+import handler.RateLimiterRejectedExecutionHandler;
 import lombok.AccessLevel;
 import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
 
 /**
  * Rate limits are an important tool to prevent API users from causing denial-of-service for other users. This class is
@@ -29,11 +28,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * @see <a href="https://en.wikipedia.org/wiki/Rate_limiting">Rate limiting on Wikipedia</a>
  */
 //@ThreadSafe
-@Getter
+@Getter(AccessLevel.PROTECTED)
 public class RateLimitedExecutor {
     private final int requestsPerMinute;
     private final int maxQueueSize;
-    private final RequestExecutor requestExecutor;
+    private final ThreadPoolExecutor requestExecutor;
 
     /**
      * Implementation notes: This is an alternative implementation of the classic "Sliding Window" rate limitation
@@ -55,14 +54,19 @@ public class RateLimitedExecutor {
         this.requestsPerMinute = requestsPerMinute;
         this.maxQueueSize = maxQueueSize;
         this.acceptedRequests = new ConcurrentHashMap<>();
-        this.requestExecutor = new RequestExecutor(maxQueueSize);
+
+        // Instantiate a cached ThreadPoolExecutor that starts with no core threads, at most spawns as many threads as
+        // the queue size (since we are not interested in executing more than that at the same time), de-allocates them
+        // after standard 60 seconds, and uses a SynchronousQueue which will always be of size 0 since we already manage
+        // the actual job queue externally.
+        requestExecutor = new ThreadPoolExecutor(0, maxQueueSize, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(maxQueueSize), new RateLimiterRejectedExecutionHandler());
     }
 
     /**
      * @return Amount of currently queued requests
      */
     public int getQueuedRequests() {
-        return getRequestExecutor().getQueuedRequests();
+        return getRequestExecutor().getQueue().size();
     }
 
     /**
@@ -104,7 +108,7 @@ public class RateLimitedExecutor {
 
         if (accepted) {
             // Request accepted, attempt to enqueue and wait for the queue to free up space if needed.
-            getRequestExecutor().enqueue(() -> {
+            getRequestExecutor().submit(() -> {
                 // Execute request
                 try {
                     future.complete(request.execute());
@@ -171,7 +175,7 @@ public class RateLimitedExecutor {
      * @param args Command line arguments
      */
     public static void main(String[] args) {
-        final RateLimitedExecutor executor = new RateLimitedExecutor(100, 8);
+        final RateLimitedExecutor executor = new RateLimitedExecutor(10, 8);
 
         //noinspection InfiniteLoopStatement
         while (true) {
@@ -185,6 +189,13 @@ public class RateLimitedExecutor {
                     }
                 });
             } catch (RateLimitException | InterruptedException e) {
+                e.printStackTrace();
+            }
+            // Make sure the terminal is still readable when rate limit is reached
+            try {
+                //noinspection BusyWait
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
